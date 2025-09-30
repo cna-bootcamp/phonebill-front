@@ -16,6 +16,6 @@ kustomize edit set image acrdigitalgarage01.azurecr.io/phonebill/phonebill-front
 kubectl apply -k .
 
 # 배포 상태 확인
-kubectl rollout status deployment/phonebill-front -n phonebill-${ENVIRONMENT} --timeout=300s
+kubectl rollout status deployment/phonebill-front -n phonebill-dg0500 --timeout=300s
 
 echo "✅ 배포 완료!"

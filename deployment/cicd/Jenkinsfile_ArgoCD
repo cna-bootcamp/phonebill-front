@@ -12,7 +12,7 @@ podTemplate(
     slaveConnectTimeout: 300,
     idleMinutes: 1,
     activeDeadlineSeconds: 3600,
-    podRetention: never(),  // 파드 자동 정리 옵션: never(), onFailure(), always(), default()
+    podRetention: never(),
     yaml: '''
         spec:
           terminationGracePeriodSeconds: 3
@@ -25,9 +25,9 @@ podTemplate(
     ''',
     containers: [
         containerTemplate(
-            name: 'node',
-            image: 'node:slim',
-            ttyEnabled: true,
+            name: 'node', 
+            image: 'node:slim', 
+            ttyEnabled: true, 
             command: 'cat',
             resourceRequestCpu: '400m',
             resourceRequestMemory: '1Gi',
@@ -35,10 +35,10 @@ podTemplate(
             resourceLimitMemory: '4Gi'
         ),
         containerTemplate(
-            name: 'podman',
-            image: "mgoltzsche/podman",
-            ttyEnabled: true,
-            command: 'cat',
+            name: 'podman', 
+            image: "mgoltzsche/podman", 
+            ttyEnabled: true, 
+            command: 'cat', 
             privileged: true,
             resourceRequestCpu: '400m',
             resourceRequestMemory: '2Gi',
@@ -46,9 +46,9 @@ podTemplate(
             resourceLimitMemory: '4Gi'
         ),
         containerTemplate(
-            name: 'azure-cli',
-            image: 'hiondal/azure-kubectl:latest',
-            command: 'cat',
+            name: 'azure-cli', 
+            image: 'hiondal/azure-kubectl:latest', 
+            command: 'cat', 
             ttyEnabled: true,
             resourceRequestCpu: '200m',
             resourceRequestMemory: '512Mi',
@@ -61,9 +61,9 @@ podTemplate(
             command: 'cat',
             ttyEnabled: true,
             resourceRequestCpu: '200m',
-            resourceRequestMemory: '1Gi',
-            resourceLimitCpu: '1500m',
-            resourceLimitMemory: '2Gi'
+            resourceRequestMemory: '512Mi',
+            resourceLimitCpu: '1000m',
+            resourceLimitMemory: '1Gi'
         ),
         containerTemplate(
             name: 'git',
@@ -84,16 +84,18 @@ podTemplate(
 ) {
     node(PIPELINE_ID) {
         def props
-        def imageTag = getImageTag()
+        //def imageTag = getImageTag()
+        def imageTag = "dg0500"
         def environment = params.ENVIRONMENT ?: 'dev'
         def skipSonarQube = (params.SKIP_SONARQUBE?.toLowerCase() == 'true')
         def sonarScannerHome = '/opt/sonar-scanner'
-
+        
         try {
             stage("Get Source") {
                 checkout scm
                 props = readProperties file: "deployment/cicd/config/deploy_env_vars_${environment}"
             }
+
 
             stage('Build & Test') {
                 container('node') {
@@ -114,7 +116,7 @@ podTemplate(
                             try {
                                 withSonarQubeEnv('SonarQube') {
                                     sh """
-                                      timeout 600 ${sonarScannerHome}/bin/sonar-scanner \\
+                                      timeout 300 ${sonarScannerHome}/bin/sonar-scanner \\
                                       -Dsonar.projectKey=phonebill-front-${environment} \\
                                       -Dsonar.projectName=phonebill-front-${environment} \\
                                       -Dsonar.sources=src \\
@@ -128,7 +130,7 @@ podTemplate(
                                       -Dsonar.javascript.node.maxspace=4096
                                     """
                                 }
-
+                                
                                 timeout(time: 5, unit: 'MINUTES') {
                                     def qg = waitForQualityGate()
                                     if (qg.status != 'OK') {
@@ -154,13 +156,13 @@ podTemplate(
                             ),
                             usernamePassword(
                                 credentialsId: 'dockerhub-credentials',
-                                usernameVariable: 'DOCKERHUB_USERNAME',
+                                usernameVariable: 'DOCKERHUB_USERNAME', 
                                 passwordVariable: 'DOCKERHUB_PASSWORD'
                             )
                         ]) {
                             // Docker Hub 로그인 (rate limit 해결)
                             sh "podman login docker.io --username \$DOCKERHUB_USERNAME --password \$DOCKERHUB_PASSWORD"
-
+                            
                             // ACR 로그인
                             sh "podman login acrdigitalgarage01.azurecr.io --username \$ACR_USERNAME --password \$ACR_PASSWORD"
 
@@ -192,7 +194,6 @@ podTemplate(
                             git clone https://\${GIT_USERNAME}:\${GIT_TOKEN}@\${REPO_URL} manifest-repo
                             cd manifest-repo
 
-                            # 프론트엔드 이미지 태그 업데이트 (sed 명령 사용)
                             echo "Updating phonebill-front image tag..."
                             sed -i "s|image: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:.*|image: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:${environment}-${imageTag}|g" \\
                                 phonebill-front/kustomize/base/deployment.yaml
@@ -213,20 +214,19 @@ podTemplate(
                     }
                 }
             }
-
+        
             // 파이프라인 완료 로그 (Scripted Pipeline 방식)
             stage('Pipeline Complete') {
                 echo "🧹 Pipeline completed. Pod cleanup handled by Jenkins Kubernetes Plugin."
-
+                
                 // 성공/실패 여부 로깅
                 if (currentBuild.result == null || currentBuild.result == 'SUCCESS') {
                     echo "✅ Pipeline completed successfully!"
-                    echo "✅ 매니페스트가 업데이트되었습니다. ArgoCD에서 배포를 확인하세요."
                 } else {
                     echo "❌ Pipeline failed with result: ${currentBuild.result}"
                 }
             }
-
+            
         } catch (Exception e) {
             currentBuild.result = 'FAILURE'
             echo "❌ Pipeline failed with exception: ${e.getMessage()}"

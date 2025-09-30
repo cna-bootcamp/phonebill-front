@@ -38,6 +38,7 @@ env:
   IMAGE_ORG: phonebill
   RESOURCE_GROUP: rg-digitalgarage-01
   AKS_CLUSTER: aks-digitalgarage-01
+  NAMESPACE: phonebill-dg0500
 
 jobs:
   build:
@@ -236,7 +237,7 @@ jobs:
 
       - name: Create namespace
         run: |
-          kubectl create namespace phonebill-${{ env.ENVIRONMENT }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install Kustomize
         run: |
@@ -257,4 +258,4 @@ jobs:
       - name: Wait for deployments to be ready
         run: |
           echo "Waiting for deployments to be ready..."
-          kubectl -n phonebill-${{ env.ENVIRONMENT }} wait --for=condition=available deployment/phonebill-front --timeout=300s
+          kubectl -n ${{ env.NAMESPACE }} wait --for=condition=available deployment/phonebill-front --timeout=300s

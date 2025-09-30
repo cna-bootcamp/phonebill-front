@@ -9,10 +9,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - phonebill-front-prod.example.com
+    - phonebill.example.com
     secretName: phonebill-front-prod-tls
   rules:
-  - host: phonebill-front-prod.example.com
+  - host: phonebill.example.com
     http:
       paths:
       - path: /

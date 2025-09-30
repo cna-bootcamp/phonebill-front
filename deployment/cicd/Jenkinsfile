@@ -12,7 +12,7 @@ podTemplate(
     slaveConnectTimeout: 300,
     idleMinutes: 1,
     activeDeadlineSeconds: 3600,
-    podRetention: never(),  // 파드 자동 정리 옵션: never(), onFailure(), always(), default()
+    podRetention: never(),
     yaml: '''
         spec:
           terminationGracePeriodSeconds: 3
@@ -56,14 +56,14 @@ podTemplate(
             resourceLimitMemory: '1Gi'
         ),
         containerTemplate(
-            name: 'sonar-scanner',
-            image: 'sonarsource/sonar-scanner-cli:latest',
-            command: 'cat',
+            name: 'sonar-scanner', 
+            image: 'sonarsource/sonar-scanner-cli:latest', 
+            command: 'cat', 
             ttyEnabled: true,
             resourceRequestCpu: '200m',
-            resourceRequestMemory: '1Gi',
-            resourceLimitCpu: '1500m',
-            resourceLimitMemory: '2Gi'
+            resourceRequestMemory: '512Mi',
+            resourceLimitCpu: '1000m',
+            resourceLimitMemory: '1Gi'
         )
     ],
     volumes: [
@@ -74,7 +74,8 @@ podTemplate(
 ) {
     node(PIPELINE_ID) {
         def props
-        def imageTag = getImageTag()
+        //def imageTag = getImageTag()
+        def imageTag = "dg0500"
         def environment = params.ENVIRONMENT ?: 'dev'
         def skipSonarQube = (params.SKIP_SONARQUBE?.toLowerCase() == 'true')
         def sonarScannerHome = '/opt/sonar-scanner'
@@ -91,7 +92,7 @@ podTemplate(
                         sh """
                             az login --service-principal -u \$AZURE_CLIENT_ID -p \$AZURE_CLIENT_SECRET -t \$AZURE_TENANT_ID
                             az aks get-credentials --resource-group ${props.resource_group} --name ${props.cluster_name} --overwrite-existing
-                            kubectl create namespace phonebill-${environment} --dry-run=client -o yaml | kubectl apply -f -
+                            kubectl create namespace phonebill-dg0500 --dry-run=client -o yaml | kubectl apply -f -
                         """
                     }
                 }
@@ -116,7 +117,7 @@ podTemplate(
                             try {
                                 withSonarQubeEnv('SonarQube') {
                                     sh """
-                                      timeout 600 ${sonarScannerHome}/bin/sonar-scanner \\
+                                      timeout 300 ${sonarScannerHome}/bin/sonar-scanner \\
                                       -Dsonar.projectKey=phonebill-front-${environment} \\
                                       -Dsonar.projectName=phonebill-front-${environment} \\
                                       -Dsonar.sources=src \\
@@ -201,7 +202,7 @@ podTemplate(
 
                         # 배포 상태 확인
                         echo "Waiting for deployments to be ready..."
-                        kubectl -n phonebill-${environment} wait --for=condition=available deployment/phonebill-front --timeout=300s
+                        kubectl -n phonebill-dg0500 wait --for=condition=available deployment/phonebill-front --timeout=300s
                     """
                 }
             }

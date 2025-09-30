@@ -1,339 +1,472 @@
-# 프론트엔드 GitHub Actions CI/CD 파이프라인 가이드
+# GitHub Actions CI/CD 파이프라인 가이드
 
-## 📋 개요
+## 목차
+1. [개요](#개요)
+2. [사전 준비사항](#사전-준비사항)
+3. [파이프라인 구조](#파이프라인-구조)
+4. [GitHub 저장소 설정](#github-저장소-설정)
+5. [워크플로우 실행 방법](#워크플로우-실행-방법)
+6. [수동 배포 방법](#수동-배포-방법)
+7. [롤백 방법](#롤백-방법)
+8. [SonarQube 설정](#sonarqube-설정)
+9. [트러블슈팅](#트러블슈팅)
 
-이 가이드는 phonebill 프론트엔드 서비스를 GitHub Actions와 Kustomize를 사용하여 CI/CD 파이프라인을 구축하는 방법을 설명합니다.
+---
 
-## 🏗️ 구성 요소
+## 개요
 
-### 시스템 정보
+본 가이드는 **phonebill-front** 프론트엔드 서비스를 GitHub Actions와 Kustomize를 이용하여 Azure Kubernetes Service(AKS)에 자동 배포하는 CI/CD 파이프라인 구축 방법을 안내합니다.
+
+### 주요 특징
+- **자동화된 빌드 및 테스트**: Node.js 기반 빌드, ESLint 검사
+- **코드 품질 분석**: SonarQube 연동 (선택적)
+- **컨테이너 이미지 빌드**: Docker 이미지 빌드 및 Azure Container Registry(ACR) 푸시
+- **환경별 배포**: dev, staging, prod 환경별 자동 배포
+- **Kustomize 기반 매니페스트 관리**: 환경별 설정 오버레이
+
+---
+
+## 사전 준비사항
+
+### 1. 시스템 정보 확인
+
+프로젝트의 실행 정보:
 - **SYSTEM_NAME**: phonebill
 - **SERVICE_NAME**: phonebill-front
 - **ACR_NAME**: acrdigitalgarage01
 - **RESOURCE_GROUP**: rg-digitalgarage-01
 - **AKS_CLUSTER**: aks-digitalgarage-01
+- **NAMESPACE**: phonebill-dg0500
 - **NODE_VERSION**: 20
 
-### 파일 구조
+### 2. 필요한 도구
+- Azure CLI
+- kubectl
+- kustomize
+- Docker (로컬 테스트용)
+
+### 3. Azure 리소스
+- Azure Container Registry (ACR) 생성 완료
+- Azure Kubernetes Service (AKS) 클러스터 생성 완료
+- Azure Service Principal 생성 완료
+
+---
+
+## 파이프라인 구조
+
+GitHub Actions 워크플로우는 3개의 주요 Job으로 구성됩니다:
+
+### 1. Build Job
+- 소스 코드 체크아웃
+- Node.js 환경 설정
+- 의존성 설치 (`npm ci`)
+- 빌드 및 린트 실행 (`npm run build`, `npm run lint`)
+- SonarQube 코드 분석 (선택적)
+- 빌드 아티팩트 업로드
+
+### 2. Release Job
+- 빌드 아티팩트 다운로드
+- Docker 이미지 빌드
+- ACR에 이미지 푸시
+- 이미지 태그: `{environment}-{timestamp}` 형식
+
+### 3. Deploy Job
+- Azure CLI 및 kubectl 설정
+- AKS 클러스터 인증
+- Namespace 생성
+- Kustomize를 이용한 매니페스트 적용
+- 배포 상태 확인
+
+---
+
+## GitHub 저장소 설정
+
+### 1. GitHub Repository Secrets 설정
+
+GitHub Repository > Settings > Secrets and variables > Actions > Repository secrets에 다음 시크릿을 등록합니다:
+
+#### Azure Service Principal
+```json
+AZURE_CREDENTIALS:
+{
+  "clientId": "{클라이언트ID}",
+  "clientSecret": "{클라이언트시크릿}",
+  "subscriptionId": "{구독ID}",
+  "tenantId": "{테넌트ID}"
+}
+```
+
+**예시:**
+```json
+{
+  "clientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "clientSecret": "xxxx~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "subscriptionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "tenantId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+#### ACR Credentials
+ACR 자격증명 확인 방법:
+```bash
+az acr credential show --name acrdigitalgarage01
+```
+
+등록할 시크릿:
+```
+ACR_USERNAME: acrdigitalgarage01
+ACR_PASSWORD: {ACR패스워드}
+```
+
+#### Docker Hub Credentials (Rate Limit 방지)
+Docker Hub에서 Personal Access Token 생성:
+1. [Docker Hub](https://hub.docker.com)에 로그인
+2. 우측 상단 프로필 아이콘 > Account Settings
+3. 좌측 메뉴 'Personal Access Tokens' 클릭
+4. 토큰 생성
+
+등록할 시크릿:
+```
+DOCKERHUB_USERNAME: {Docker Hub 사용자명}
+DOCKERHUB_PASSWORD: {Personal Access Token}
+```
+
+#### SonarQube 설정 (선택적)
+SonarQube URL 확인:
+```bash
+kubectl get svc -n sonarqube
+```
+
+SonarQube 토큰 생성:
+1. SonarQube 로그인
+2. 우측 상단 'Administrator' > My Account
+3. Security 탭에서 토큰 생성
+
+등록할 시크릿:
+```
+SONAR_TOKEN: {SonarQube토큰}
+SONAR_HOST_URL: http://{External IP}
+```
+
+### 2. GitHub Repository Variables 설정
+
+GitHub Repository > Settings > Secrets and variables > Actions > Variables > Repository variables에 등록:
+
+```
+ENVIRONMENT: dev
+SKIP_SONARQUBE: true
+```
+
+**변수 설명:**
+- `ENVIRONMENT`: 기본 배포 환경 (dev/staging/prod)
+- `SKIP_SONARQUBE`: SonarQube 분석 스킵 여부 (true/false)
+
+---
+
+## 워크플로우 실행 방법
+
+### 1. 자동 실행 (Push/PR)
+
+다음 경로의 파일이 변경되면 자동으로 워크플로우가 실행됩니다:
+- `src/**`
+- `public/**`
+- `package*.json`
+- `tsconfig*.json`
+- `vite.config.ts`
+- `index.html`
+- `.github/**`
+
+**실행 브랜치:**
+- Push: `main`, `develop` 브랜치
+- Pull Request: `main` 브랜치
+
+**기본 설정:**
+- Environment: dev
+- Skip SonarQube: true
+
+### 2. 수동 실행 (Workflow Dispatch)
+
+GitHub 저장소에서:
+1. Actions 탭 클릭
+2. "Frontend CI/CD" 워크플로우 선택
+3. "Run workflow" 버튼 클릭
+4. 환경 선택:
+   - **Environment**: dev / staging / prod
+   - **Skip SonarQube Analysis**: true / false
+5. "Run workflow" 버튼 클릭
+
+---
+
+## 수동 배포 방법
+
+워크플로우를 거치지 않고 로컬에서 직접 배포할 수 있습니다.
+
+### 사전 요구사항
+- Azure CLI 로그인 완료
+- AKS 클러스터 인증 완료
+- kubectl 설정 완료
+
+### 배포 실행
+
+```bash
+# 개발 환경 배포 (latest 태그)
+./.github/scripts/deploy-actions-frontend.sh dev latest
+
+# 개발 환경 배포 (특정 태그)
+./.github/scripts/deploy-actions-frontend.sh dev 20240313120000
+
+# 스테이징 환경 배포
+./.github/scripts/deploy-actions-frontend.sh staging {image-tag}
+
+# 운영 환경 배포
+./.github/scripts/deploy-actions-frontend.sh prod {image-tag}
+```
+
+**스크립트 동작:**
+1. 환경별 설정 파일 로드 (`.github/config/deploy_env_vars_{env}`)
+2. Kustomize 설치 확인 및 설치
+3. Namespace 생성
+4. 이미지 태그 업데이트
+5. Kubernetes 매니페스트 적용
+6. 배포 상태 확인
+7. Health Check
+
+---
+
+## 롤백 방법
+
+### 1. GitHub Actions에서 이전 버전으로 롤백
+
+1. GitHub > Actions 탭
+2. 성공한 이전 워크플로우 실행 선택
+3. "Re-run all jobs" 클릭
+
+### 2. kubectl을 이용한 롤백
+
+```bash
+# 이전 버전으로 롤백
+kubectl rollout undo deployment/phonebill-front -n phonebill-dg0500
+
+# 특정 리비전으로 롤백
+kubectl rollout undo deployment/phonebill-front -n phonebill-dg0500 --to-revision=2
+
+# 롤백 히스토리 확인
+kubectl rollout history deployment/phonebill-front -n phonebill-dg0500
+
+# 롤백 상태 확인
+kubectl rollout status deployment/phonebill-front -n phonebill-dg0500
+```
+
+### 3. 수동 스크립트를 이용한 롤백
+
+이전에 성공한 이미지 태그를 사용하여 재배포:
+
+```bash
+# 이전 안정 버전으로 롤백
+./.github/scripts/deploy-actions-frontend.sh dev 20240313100000
+```
+
+---
+
+## SonarQube 설정
+
+### 프로젝트 생성
+
+1. SonarQube 웹 UI 접속
+2. Projects > Create Project
+3. 프로젝트 키: `phonebill-front-{환경}` (예: phonebill-front-dev)
+4. 프로젝트 이름: `phonebill-front-{환경}`
+
+### Quality Gate 설정
+
+SonarQube에서 다음 품질 기준 설정:
+
+| 메트릭 | 조건 | 값 |
+|--------|------|-----|
+| Coverage | >= | 70% |
+| Duplicated Lines | <= | 3% |
+| Maintainability Rating | <= | A |
+| Reliability Rating | <= | A |
+| Security Rating | <= | A |
+| Code Smells | <= | 50 |
+| Bugs | = | 0 |
+| Vulnerabilities | = | 0 |
+
+### 분석 실행 제어
+
+**워크플로우에서 SonarQube 건너뛰기:**
+- 자동 실행 시: Repository Variables의 `SKIP_SONARQUBE=true` 설정
+- 수동 실행 시: "Skip SonarQube Analysis" 옵션을 `true`로 선택
+
+**SonarQube 분석 활성화:**
+- 수동 실행 시: "Skip SonarQube Analysis" 옵션을 `false`로 선택
+
+---
+
+## 트러블슈팅
+
+### 1. 이미지 푸시 실패
+
+**증상:** ACR에 이미지 푸시 중 인증 오류
+
+**해결방법:**
+```bash
+# ACR 자격증명 확인
+az acr credential show --name acrdigitalgarage01
+
+# GitHub Secrets 업데이트
+# ACR_USERNAME, ACR_PASSWORD 확인
+```
+
+### 2. Kustomize 빌드 실패
+
+**증상:** `Error: unable to find one or more resources`
+
+**해결방법:**
+```bash
+# 로컬에서 Kustomize 빌드 테스트
+kubectl kustomize .github/kustomize/overlays/dev/
+
+# base 디렉토리 파일 확인
+ls .github/kustomize/base/
+
+# 누락된 리소스 파일 확인 및 추가
+```
+
+### 3. Deployment 배포 실패
+
+**증상:** Deployment가 Available 상태가 되지 않음
+
+**해결방법:**
+```bash
+# Pod 상태 확인
+kubectl get pods -n phonebill-dg0500
+
+# Pod 로그 확인
+kubectl logs -n phonebill-dg0500 -l app.kubernetes.io/name=phonebill-front
+
+# Deployment 상태 확인
+kubectl describe deployment phonebill-front -n phonebill-dg0500
+
+# ConfigMap 확인
+kubectl get configmap -n phonebill-dg0500
+kubectl describe configmap cm-phonebill-front -n phonebill-dg0500
+```
+
+### 4. Docker Hub Rate Limit 오류
+
+**증상:** `toomanyrequests: You have reached your pull rate limit`
+
+**해결방법:**
+- Docker Hub 자격증명이 GitHub Secrets에 올바르게 등록되었는지 확인
+- `DOCKERHUB_USERNAME`, `DOCKERHUB_PASSWORD` 시크릿 확인
+
+### 5. SonarQube 연결 실패
+
+**증상:** SonarQube 분석 중 연결 오류
+
+**해결방법:**
+```bash
+# SonarQube 서비스 상태 확인
+kubectl get svc -n sonarqube
+
+# SonarQube URL 접근 테스트
+curl -I http://{SONAR_HOST_URL}
+
+# GitHub Secrets에서 SONAR_HOST_URL, SONAR_TOKEN 확인
+```
+
+### 6. Namespace 권한 오류
+
+**증상:** `Error from server (Forbidden): namespaces is forbidden`
+
+**해결방법:**
+- Azure Service Principal의 AKS 권한 확인
+- Kubernetes RBAC 설정 확인
+- Service Principal이 AKS 클러스터의 적절한 Role을 가지고 있는지 확인
+
+---
+
+## 디렉토리 구조
+
 ```
 .github/
 ├── workflows/
-│   └── frontend-cicd.yaml          # GitHub Actions 워크플로우
+│   └── frontend-cicd.yaml        # GitHub Actions 워크플로우
 ├── kustomize/
 │   ├── base/
-│   │   ├── kustomization.yaml      # 기본 Kustomize 설정
-│   │   ├── deployment.yaml         # 기본 Deployment
-│   │   ├── service.yaml            # 기본 Service
-│   │   ├── configmap.yaml          # 기본 ConfigMap
-│   │   └── ingress.yaml            # 기본 Ingress
+│   │   ├── kustomization.yaml
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── configmap.yaml
+│   │   └── ingress.yaml
 │   └── overlays/
-│       ├── dev/                    # 개발 환경
+│       ├── dev/
 │       │   ├── kustomization.yaml
 │       │   ├── configmap-patch.yaml
 │       │   ├── deployment-patch.yaml
 │       │   └── ingress-patch.yaml
-│       ├── staging/                # 스테이징 환경
+│       ├── staging/
 │       │   ├── kustomization.yaml
 │       │   ├── configmap-patch.yaml
 │       │   ├── deployment-patch.yaml
 │       │   └── ingress-patch.yaml
-│       └── prod/                   # 운영 환경
+│       └── prod/
 │           ├── kustomization.yaml
 │           ├── configmap-patch.yaml
 │           ├── deployment-patch.yaml
 │           └── ingress-patch.yaml
 ├── config/
-│   ├── deploy_env_vars_dev         # 개발 환경 설정
-│   ├── deploy_env_vars_staging     # 스테이징 환경 설정
-│   └── deploy_env_vars_prod        # 운영 환경 설정
-└── scripts/
-    └── deploy-actions-frontend.sh  # 수동 배포 스크립트
+│   ├── deploy_env_vars_dev
+│   ├── deploy_env_vars_staging
+│   └── deploy_env_vars_prod
+├── scripts/
+│   └── deploy-actions-frontend.sh
+└── actions-pipeline-guide.md     # 이 가이드 문서
 ```
 
-## ⚙️ GitHub Repository 설정
+---
 
-### 1. Repository Secrets 설정
+## 체크리스트
 
-GitHub Repository > Settings > Secrets and variables > Actions > Repository secrets에서 다음 시크릿을 설정하세요:
+### 사전 준비
+- [ ] package.json에서 시스템명과 서비스명 확인
+- [ ] Azure Service Principal 생성 및 자격증명 확보
+- [ ] ACR 자격증명 확보
+- [ ] AKS 클러스터 접근 권한 확인
 
-#### Azure 인증 정보
-```json
-AZURE_CREDENTIALS:
-{
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret",
-  "subscriptionId": "your-subscription-id",
-  "tenantId": "your-tenant-id"
-}
-```
+### GitHub 설정
+- [ ] AZURE_CREDENTIALS 시크릿 등록
+- [ ] ACR_USERNAME, ACR_PASSWORD 시크릿 등록
+- [ ] DOCKERHUB_USERNAME, DOCKERHUB_PASSWORD 시크릿 등록
+- [ ] SONAR_TOKEN, SONAR_HOST_URL 시크릿 등록 (선택)
+- [ ] ENVIRONMENT, SKIP_SONARQUBE 변수 등록
 
-#### Azure Container Registry 인증 정보
-ACR 인증 정보 확인:
-```bash
-az acr credential show --name acrdigitalgarage01
-```
+### 파이프라인 파일
+- [ ] `.github/workflows/frontend-cicd.yaml` 생성 및 확인
+- [ ] `.github/kustomize/base/` 디렉토리 및 매니페스트 생성
+- [ ] `.github/kustomize/overlays/{dev,staging,prod}/` 생성
+- [ ] 환경별 patch 파일 생성 및 확인
+- [ ] `.github/config/deploy_env_vars_{env}` 파일 생성
+- [ ] `.github/scripts/deploy-actions-frontend.sh` 생성 및 실행 권한 부여
 
-```
-ACR_USERNAME: acrdigitalgarage01
-ACR_PASSWORD: your-acr-password
-```
+### 검증
+- [ ] 로컬에서 Kustomize 빌드 테스트 (`kubectl kustomize`)
+- [ ] GitHub Actions 워크플로우 수동 실행 테스트
+- [ ] 개발 환경 배포 성공 확인
+- [ ] 배포된 서비스 접근 테스트
 
-#### SonarQube 설정
-SonarQube 서버 URL 확인:
-```bash
-kubectl get svc -n sonarqube
-```
+---
 
-```
-SONAR_HOST_URL: http://your-sonarqube-external-ip
-SONAR_TOKEN: your-sonarqube-token
-```
-
-SonarQube 토큰 생성:
-1. SonarQube 로그인 후 우측 상단 'Administrator' > My Account 클릭
-2. Security 탭 선택 후 토큰 생성
-
-#### Docker Hub 인증 정보 (Rate Limit 방지)
-```
-DOCKERHUB_USERNAME: your-dockerhub-username
-DOCKERHUB_PASSWORD: your-dockerhub-access-token
-```
-
-Docker Hub 액세스 토큰 생성:
-1. Docker Hub(https://hub.docker.com) 로그인
-2. 우측 상단 프로필 아이콘 > Account Settings
-3. 좌측 메뉴 'Personal Access Tokens' 클릭하여 생성
-
-### 2. Repository Variables 설정
-
-GitHub Repository > Settings > Secrets and variables > Actions > Variables > Repository variables에서 다음 변수를 설정하세요:
-
-```
-ENVIRONMENT: dev                    # 기본 환경 (수동 실행 시 선택 가능)
-SKIP_SONARQUBE: true               # SonarQube 분석 생략 여부
-```
-
-## 🚀 파이프라인 실행 방법
-
-### 자동 실행
-- **Push 이벤트**: main, develop 브랜치에 푸시 시 자동 실행 (ENVIRONMENT=dev, SKIP_SONARQUBE=true)
-- **Pull Request**: main 브랜치로 PR 생성 시 자동 실행
-
-### 수동 실행
-1. GitHub Repository > Actions 탭 이동
-2. "Frontend CI/CD" 워크플로우 선택
-3. "Run workflow" 버튼 클릭
-4. 실행 옵션 선택:
-   - **Target environment**: dev/staging/prod 선택
-   - **Skip SonarQube Analysis**: true/false 선택
-5. "Run workflow" 버튼 클릭하여 실행
-
-## 📊 파이프라인 단계
-
-### 1. Build and Test
-- Node.js 20 환경 설정
-- 의존성 설치 (`npm ci`)
-- 프로젝트 빌드 (`npm run build`)
-- ESLint 검사 (`npm run lint`)
-- SonarQube 코드 분석 (옵션)
-- 빌드 아티팩트 업로드
-
-### 2. Build and Push Docker Image
-- Docker 이미지 빌드
-- Azure Container Registry에 푸시
-- 이미지 태그: `{환경}-{타임스탬프}` 형식
-
-### 3. Deploy to Kubernetes
-- AKS 클러스터 접속
-- 네임스페이스 생성 (`phonebill-{환경}`)
-- Kustomize를 사용한 매니페스트 적용
-- 배포 완료 대기 (최대 5분)
-
-## 🌍 환경별 설정
-
-### 개발 환경 (dev)
-- **네임스페이스**: phonebill-dev
-- **레플리카**: 1개
-- **리소스**: CPU 256m/1024m, Memory 256Mi/1024Mi
-- **도메인**: phonebill.20.214.196.128.nip.io (HTTP)
-- **API 서버**: http://phonebill-api.20.214.196.128.nip.io
-
-### 스테이징 환경 (staging)
-- **네임스페이스**: phonebill-staging
-- **레플리카**: 2개
-- **리소스**: CPU 512m/2048m, Memory 512Mi/2048Mi
-- **도메인**: phonebill-front-staging.example.com (HTTPS)
-- **API 서버**: https://phonebill-api-staging.example.com
-
-### 운영 환경 (prod)
-- **네임스페이스**: phonebill-prod
-- **레플리카**: 3개
-- **리소스**: CPU 1024m/4096m, Memory 1024Mi/4096Mi
-- **도메인**: phonebill-front-prod.example.com (HTTPS)
-- **API 서버**: https://phonebill-api-prod.example.com
-
-## 🔧 수동 배포 방법
-
-### 스크립트 사용
-```bash
-# 개발 환경에 최신 태그로 배포
-./.github/scripts/deploy-actions-frontend.sh dev latest
-
-# 스테이징 환경에 특정 태그로 배포
-./.github/scripts/deploy-actions-frontend.sh staging 20240315143022
-```
-
-### kubectl 직접 사용
-```bash
-# 네임스페이스 생성
-kubectl create namespace phonebill-dev --dry-run=client -o yaml | kubectl apply -f -
-
-# Kustomize로 배포
-cd .github/kustomize/overlays/dev
-kustomize edit set image acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:dev-20240315143022
-kubectl apply -k .
-
-# 배포 상태 확인
-kubectl rollout status deployment/phonebill-front -n phonebill-dev
-```
-
-## 🔄 롤백 방법
-
-### GitHub Actions에서 롤백
-1. GitHub > Actions에서 성공한 이전 워크플로우 선택
-2. "Re-run all jobs" 클릭
-
-### kubectl을 사용한 롤백
-```bash
-# 이전 버전으로 롤백
-kubectl rollout undo deployment/phonebill-front -n phonebill-dev --to-revision=2
-
-# 롤백 상태 확인
-kubectl rollout status deployment/phonebill-front -n phonebill-dev
-```
-
-### 수동 스크립트로 롤백
-```bash
-# 이전 안정 버전 이미지 태그로 재배포
-./.github/scripts/deploy-actions-frontend.sh dev 20240314120000
-```
-
-## 📈 모니터링 및 로그
-
-### 배포 상태 확인
-```bash
-# Pod 상태 확인
-kubectl get pods -n phonebill-dev
-
-# 서비스 상태 확인
-kubectl get services -n phonebill-dev
-
-# Ingress 상태 확인
-kubectl get ingress -n phonebill-dev
-
-# 배포 히스토리 확인
-kubectl rollout history deployment/phonebill-front -n phonebill-dev
-```
-
-### 로그 확인
-```bash
-# 애플리케이션 로그
-kubectl logs -f deployment/phonebill-front -n phonebill-dev
-
-# 이벤트 확인
-kubectl get events -n phonebill-dev --sort-by='.metadata.creationTimestamp'
-```
-
-## 🔒 SonarQube 설정
-
-### 프로젝트 설정
-- **프로젝트 키**: phonebill-front-{환경}
-- **언어**: JavaScript/TypeScript
-- **소스 경로**: src
-- **테스트 경로**: src (*.test.ts, *.test.tsx, *.spec.ts, *.spec.tsx)
-- **제외 경로**: node_modules, dist, build, coverage
-
-### Quality Gate 설정
-```
-Coverage: >= 70%
-Duplicated Lines: <= 3%
-Maintainability Rating: <= A
-Reliability Rating: <= A
-Security Rating: <= A
-Code Smells: <= 50
-Bugs: = 0
-Vulnerabilities: = 0
-```
-
-## 🚨 문제 해결
-
-### 일반적인 문제
-
-#### 1. Docker 빌드 실패
-- Dockerfile-frontend 경로 확인: `deployment/container/Dockerfile-frontend`
-- 빌드 컨텍스트와 아티팩트 경로 확인
-
-#### 2. Kustomize 적용 실패
-- YAML 문법 오류 확인
-- 리소스 이름과 네임스페이스 일치 확인
-- 이미지 태그 형식 확인
-
-#### 3. 배포 타임아웃
-- 리소스 요청량이 클러스터 용량을 초과하는지 확인
-- Health check 경로 `/health` 확인
-- 네트워크 정책 및 보안 그룹 확인
-
-#### 4. SonarQube 연결 실패
-- SONAR_HOST_URL과 SONAR_TOKEN 값 확인
-- 네트워크 접근성 확인
-- SonarQube 서버 상태 확인
-
-### 디버깅 명령어
-```bash
-# 파이프라인 상태 확인
-kubectl get all -n phonebill-dev
-
-# 이벤트 로그 확인
-kubectl describe pod <pod-name> -n phonebill-dev
-
-# Kustomize 출력 미리보기
-cd .github/kustomize/overlays/dev
-kustomize build .
-```
-
-## 📚 참고 자료
+## 참고 자료
 
 - [GitHub Actions 공식 문서](https://docs.github.com/en/actions)
 - [Kustomize 공식 문서](https://kustomize.io/)
-- [Azure Container Registry 문서](https://docs.microsoft.com/en-us/azure/container-registry/)
 - [Azure Kubernetes Service 문서](https://docs.microsoft.com/en-us/azure/aks/)
 - [SonarQube 문서](https://docs.sonarqube.org/)
 
-## ✅ 체크리스트
+---
 
-### 사전 준비 완료 체크
-- [ ] GitHub Repository Secrets 설정 완료
-- [ ] GitHub Repository Variables 설정 완료
-- [ ] Azure 리소스 접근 권한 확인
-- [ ] SonarQube 서버 접근 가능 여부 확인
+## 문의
 
-### 파일 생성 완료 체크
-- [ ] `.eslintrc.cjs` ESLint 설정 파일
-- [ ] `.github/workflows/frontend-cicd.yaml` 워크플로우 파일
-- [ ] `.github/kustomize/` 디렉토리 구조 및 매니페스트
-- [ ] `.github/config/` 환경별 설정 파일
-- [ ] `.github/scripts/deploy-actions-frontend.sh` 수동 배포 스크립트
-
-### 검증 완료 체크
-- [ ] `kubectl kustomize .github/kustomize/base/` 정상 실행
-- [ ] 각 환경별 overlay 검증 완료
-- [ ] GitHub Actions 워크플로우 문법 검증
-- [ ] 스크립트 실행 권한 설정 완료
-
-## 🎯 다음 단계
-
-1. 첫 번째 파이프라인 실행 및 테스트
-2. 각 환경별 도메인 및 인증서 설정 (staging/prod)
-3. 실제 API 서버 주소로 ConfigMap 업데이트
-4. 모니터링 및 알림 설정 추가
-5. 성능 테스트 및 최적화
+파이프라인 구축 및 운영 관련 문의사항은 DevOps 팀에 연락하시기 바랍니다.

@@ -2,16 +2,15 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cm-phonebill-front
-  
 data:
   runtime-env.js: |
     // 런타임 환경 설정
     window.__runtime_config__ = {
-      // API 서버 설정
-      USER_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
-      BILL_HOST: 'http://phonebill-api.20.214.196.128.nip.io', 
-      PRODUCT_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
-      KOS_MOCK_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
+      // API 서버 설정 - 운영 환경
+      USER_HOST: 'https://phonebill-api.example.com',
+      BILL_HOST: 'https://phonebill-api.example.com', 
+      PRODUCT_HOST: 'https://phonebill-api.example.com',
+      KOS_MOCK_HOST: 'https://phonebill-api.example.com',
       API_GROUP: '/api/v1',
       
       // 환경 설정

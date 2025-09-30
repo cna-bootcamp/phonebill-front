@@ -25,8 +25,8 @@ else
 fi
 
 # Create namespace
-echo "📝 Creating namespace phonebill-${ENVIRONMENT}..."
-kubectl create namespace phonebill-${ENVIRONMENT} --dry-run=client -o yaml | kubectl apply -f -
+echo "📝 Creating namespace phonebill-dg0500..."
+kubectl create namespace phonebill-dg0500 --dry-run=client -o yaml | kubectl apply -f -
 
 # 환경별 이미지 태그 업데이트 (.github/kustomize 사용)
 cd .github/kustomize/overlays/${ENVIRONMENT}
@@ -41,16 +41,16 @@ kubectl apply -k .
 
 echo "⏳ Waiting for deployments to be ready..."
 # 배포 상태 확인
-kubectl rollout status deployment/phonebill-front -n phonebill-${ENVIRONMENT} --timeout=300s
+kubectl rollout status deployment/phonebill-front -n phonebill-dg0500 --timeout=300s
 
 echo "🔍 Health check..."
 # Health Check
-POD=$(kubectl get pod -n phonebill-${ENVIRONMENT} -l app=phonebill-front -o jsonpath='{.items[0].metadata.name}')
-kubectl -n phonebill-${ENVIRONMENT} exec $POD -- curl -f http://localhost:8080/ || echo "Health check failed, but deployment completed"
+POD=$(kubectl get pod -n phonebill-dg0500 -l app.kubernetes.io/name=phonebill-front -o jsonpath='{.items[0].metadata.name}')
+kubectl -n phonebill-dg0500 exec $POD -- curl -f http://localhost:8080/ || echo "Health check failed, but deployment completed"
 
 echo "📋 Service Information:"
-kubectl get pods -n phonebill-${ENVIRONMENT}
-kubectl get services -n phonebill-${ENVIRONMENT}
-kubectl get ingress -n phonebill-${ENVIRONMENT}
+kubectl get pods -n phonebill-dg0500
+kubectl get services -n phonebill-dg0500
+kubectl get ingress -n phonebill-dg0500
 
 echo "✅ GitHub Actions frontend deployment completed successfully!"
