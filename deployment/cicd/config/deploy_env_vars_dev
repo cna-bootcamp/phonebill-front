@@ -1,3 +1,2 @@
-# dev Environment Configuration
-resource_group=rg-digitalgarage-01
-cluster_name=aks-digitalgarage-01
+# Dev Environment Configuration
+namespace=phonebill

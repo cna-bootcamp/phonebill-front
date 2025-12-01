@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: phonebill-dg0500
+namespace: phonebill
 
 resources:
   - ../../base
@@ -21,5 +21,5 @@ patches:
       name: phonebill-front
 
 images:
-  - name: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front
+  - name: docker.io/hiondal/phonebill-front
     newTag: latest

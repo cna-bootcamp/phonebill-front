@@ -7,11 +7,11 @@ spec:
   template:
     spec:
       containers:
-      - name: phonebill-front
-        resources:
-          requests:
-            cpu: 512m
-            memory: 512Mi
-          limits:
-            cpu: 2048m
-            memory: 2048Mi
+        - name: phonebill-front
+          resources:
+            requests:
+              cpu: 512m
+              memory: 512Mi
+            limits:
+              cpu: 2048m
+              memory: 2048Mi

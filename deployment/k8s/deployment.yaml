@@ -2,7 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: phonebill-front
-  namespace: phonebill-dev
+  namespace: phonebill
+  labels:
+    app: phonebill-front
 spec:
   replicas: 1
   selector:
@@ -14,46 +16,47 @@ spec:
         app: phonebill-front
     spec:
       imagePullSecrets:
-      - name: phonebill
+        - name: phonebill
       containers:
-      - name: phonebill-front
-        image: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8080
-        resources:
-          requests:
-            cpu: 256m
-            memory: 256Mi
-          limits:
-            cpu: 1024m
-            memory: 1024Mi
-        startupProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 6
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          failureThreshold: 3
-        volumeMounts:
-        - name: runtime-config
-          mountPath: /usr/share/nginx/html/runtime-env.js
-          subPath: runtime-env.js
+        - name: phonebill-front
+          image: docker.io/hiondal/phonebill-front:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 256m
+              memory: 256Mi
+            limits:
+              cpu: 1024m
+              memory: 1024Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/runtime-env.js
+              subPath: runtime-env.js
       volumes:
-      - name: runtime-config
-        configMap:
-          name: cm-phonebill-front
+        - name: runtime-config
+          configMap:
+            name: cm-phonebill-front

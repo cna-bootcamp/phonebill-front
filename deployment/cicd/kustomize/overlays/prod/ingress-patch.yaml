@@ -3,22 +3,18 @@ kind: Ingress
 metadata:
   name: phonebill-front
   annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
-  tls:
-  - hosts:
-    - phonebill-front.example.com
-    secretName: phonebill-front-prod-tls
   rules:
-  - host: phonebill-front.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: phonebill-front
-            port:
-              number: 8080
+    - host: phonebill-front-prod.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: phonebill-front
+                port:
+                  number: 8080

@@ -1,3 +1,2 @@
-# prod Environment Configuration
-resource_group=rg-digitalgarage-01
-cluster_name=aks-digitalgarage-01
+# Production Environment Configuration
+namespace=phonebill

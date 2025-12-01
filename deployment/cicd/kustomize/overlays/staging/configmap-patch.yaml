@@ -6,16 +6,16 @@ data:
   runtime-env.js: |
     // 런타임 환경 설정
     window.__runtime_config__ = {
-      // API 서버 설정 - 스테이징 환경
-      USER_HOST: 'https://phonebill-api-staging.example.com',
-      BILL_HOST: 'https://phonebill-api-staging.example.com', 
-      PRODUCT_HOST: 'https://phonebill-api-staging.example.com',
-      KOS_MOCK_HOST: 'https://phonebill-api-staging.example.com',
+      // API 서버 설정
+      USER_HOST: 'http://phonebill-api.72.155.72.236.nip.io',
+      BILL_HOST: 'http://phonebill-api.72.155.72.236.nip.io',
+      PRODUCT_HOST: 'http://phonebill-api.72.155.72.236.nip.io',
+      KOS_MOCK_HOST: 'http://phonebill-api.72.155.72.236.nip.io',
       API_GROUP: '/api/v1',
-      
+
       // 환경 설정
       NODE_ENV: 'staging',
-      
+
       // 기타 설정
       APP_NAME: '통신요금 관리 서비스',
       VERSION: '1.0.0'

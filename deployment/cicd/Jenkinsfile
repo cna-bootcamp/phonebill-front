@@ -7,6 +7,7 @@ def getImageTag() {
 }
 
 podTemplate(
+    cloud: 'k8s',
     label: "${PIPELINE_ID}",
     serviceAccount: 'jenkins',
     slaveConnectTimeout: 300,
@@ -25,9 +26,9 @@ podTemplate(
     ''',
     containers: [
         containerTemplate(
-            name: 'node', 
-            image: 'node:slim', 
-            ttyEnabled: true, 
+            name: 'node',
+            image: 'node:slim',
+            ttyEnabled: true,
             command: 'cat',
             resourceRequestCpu: '400m',
             resourceRequestMemory: '1Gi',
@@ -35,10 +36,10 @@ podTemplate(
             resourceLimitMemory: '4Gi'
         ),
         containerTemplate(
-            name: 'podman', 
-            image: "mgoltzsche/podman", 
-            ttyEnabled: true, 
-            command: 'cat', 
+            name: 'podman',
+            image: "mgoltzsche/podman",
+            ttyEnabled: true,
+            command: 'cat',
             privileged: true,
             resourceRequestCpu: '400m',
             resourceRequestMemory: '2Gi',
@@ -46,9 +47,9 @@ podTemplate(
             resourceLimitMemory: '4Gi'
         ),
         containerTemplate(
-            name: 'azure-cli', 
-            image: 'hiondal/azure-kubectl:latest', 
-            command: 'cat', 
+            name: 'kubectl',
+            image: 'hiondal/azure-kubectl:latest',
+            command: 'cat',
             ttyEnabled: true,
             resourceRequestCpu: '200m',
             resourceRequestMemory: '512Mi',
@@ -56,9 +57,9 @@ podTemplate(
             resourceLimitMemory: '1Gi'
         ),
         containerTemplate(
-            name: 'sonar-scanner', 
-            image: 'sonarsource/sonar-scanner-cli:latest', 
-            command: 'cat', 
+            name: 'sonar-scanner',
+            image: 'sonarsource/sonar-scanner-cli:latest',
+            command: 'cat',
             ttyEnabled: true,
             resourceRequestCpu: '200m',
             resourceRequestMemory: '512Mi',
@@ -74,25 +75,22 @@ podTemplate(
 ) {
     node(PIPELINE_ID) {
         def props
-        //def imageTag = getImageTag()
-        def imageTag = "dg0500"
+        def imageTag = getImageTag()
         def environment = params.ENVIRONMENT ?: 'dev'
-        def skipSonarQube = (params.SKIP_SONARQUBE?.toLowerCase() == 'true')
+        def skipSonarQube = params.SKIP_SONARQUBE ?: 'true'
         def sonarScannerHome = '/opt/sonar-scanner'
-        
+
         try {
             stage("Get Source") {
                 checkout scm
                 props = readProperties file: "deployment/cicd/config/deploy_env_vars_${environment}"
             }
 
-            stage("Setup AKS") {
-                container('azure-cli') {
+            stage("Setup Kubernetes") {
+                container('kubectl') {
                     withCredentials([azureServicePrincipal('azure-credentials')]) {
                         sh """
-                            az login --service-principal -u \$AZURE_CLIENT_ID -p \$AZURE_CLIENT_SECRET -t \$AZURE_TENANT_ID
-                            az aks get-credentials --resource-group ${props.resource_group} --name ${props.cluster_name} --overwrite-existing
-                            kubectl create namespace phonebill-dg0500 --dry-run=client -o yaml | kubectl apply -f -
+                          kubectl create namespace ${props.namespace} --dry-run=client -o yaml | kubectl apply -f -
                         """
                     }
                 }
@@ -109,8 +107,8 @@ podTemplate(
             }
 
             stage('SonarQube Analysis & Quality Gate') {
-                if (skipSonarQube) {
-                    echo "⏭️ Skipping SonarQube Analysis (SKIP_SONARQUBE=${params.SKIP_SONARQUBE})"
+                if (skipSonarQube == 'true') {
+                    echo "⏭️ Skipping SonarQube Analysis (SKIP_SONARQUBE=${skipSonarQube})"
                 } else {
                     container('sonar-scanner') {
                         script {
@@ -131,7 +129,7 @@ podTemplate(
                                       -Dsonar.javascript.node.maxspace=4096
                                     """
                                 }
-                                
+
                                 timeout(time: 5, unit: 'MINUTES') {
                                     def qg = waitForQualityGate()
                                     if (qg.status != 'OK') {
@@ -151,21 +149,21 @@ podTemplate(
                     container('podman') {
                         withCredentials([
                             usernamePassword(
-                                credentialsId: 'acr-credentials',
-                                usernameVariable: 'ACR_USERNAME',
-                                passwordVariable: 'ACR_PASSWORD'
+                                credentialsId: 'imagereg-credentials',
+                                usernameVariable: 'IMG_USERNAME',
+                                passwordVariable: 'IMG_PASSWORD'
                             ),
                             usernamePassword(
                                 credentialsId: 'dockerhub-credentials',
-                                usernameVariable: 'DOCKERHUB_USERNAME', 
+                                usernameVariable: 'DOCKERHUB_USERNAME',
                                 passwordVariable: 'DOCKERHUB_PASSWORD'
                             )
                         ]) {
                             // Docker Hub 로그인 (rate limit 해결)
-                            sh "podman login docker.io --username \$DOCKERHUB_USERNAME --password \$DOCKERHUB_PASSWORD"
-                            
-                            // ACR 로그인
-                            sh "podman login acrdigitalgarage01.azurecr.io --username \$ACR_USERNAME --password \$ACR_PASSWORD"
+                            sh 'podman login docker.io --username $DOCKERHUB_USERNAME --password $DOCKERHUB_PASSWORD'
+
+                            // Image Registry 로그인
+                            sh 'podman login docker.io --username $IMG_USERNAME --password $IMG_PASSWORD'
 
                             sh """
                                 podman build \\
@@ -173,9 +171,9 @@ podTemplate(
                                     --build-arg PROJECT_FOLDER="." \\
                                     --build-arg BUILD_FOLDER="deployment/container" \\
                                     --build-arg EXPORT_PORT="8080" \\
-                                    -t acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:${environment}-${imageTag} .
+                                    -t docker.io/hiondal/phonebill-front:${environment}-${imageTag} .
 
-                                podman push acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:${environment}-${imageTag}
+                                podman push docker.io/hiondal/phonebill-front:${environment}-${imageTag}
                             """
                         }
                     }
@@ -183,7 +181,7 @@ podTemplate(
             }
 
             stage('Update Kustomize & Deploy') {
-                container('azure-cli') {
+                container('kubectl') {
                     sh """
                         # Kustomize 설치 (sudo 없이 사용자 디렉토리에 설치)
                         curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
@@ -195,22 +193,22 @@ podTemplate(
                         cd deployment/cicd/kustomize/overlays/${environment}
 
                         # 이미지 태그 업데이트
-                        \$HOME/bin/kustomize edit set image acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:${environment}-${imageTag}
+                        \$HOME/bin/kustomize edit set image docker.io/hiondal/phonebill-front:${environment}-${imageTag}
 
                         # 매니페스트 적용
                         kubectl apply -k .
 
                         # 배포 상태 확인
                         echo "Waiting for deployments to be ready..."
-                        kubectl -n phonebill-dg0500 wait --for=condition=available deployment/phonebill-front --timeout=300s
+                        kubectl -n phonebill wait --for=condition=available deployment/phonebill-front --timeout=300s
                     """
                 }
             }
-        
+
             // 파이프라인 완료 로그 (Scripted Pipeline 방식)
             stage('Pipeline Complete') {
                 echo "🧹 Pipeline completed. Pod cleanup handled by Jenkins Kubernetes Plugin."
-                
+
                 // 성공/실패 여부 로깅
                 if (currentBuild.result == null || currentBuild.result == 'SUCCESS') {
                     echo "✅ Pipeline completed successfully!"
@@ -218,7 +216,7 @@ podTemplate(
                     echo "❌ Pipeline failed with result: ${currentBuild.result}"
                 }
             }
-            
+
         } catch (Exception e) {
             currentBuild.result = 'FAILURE'
             echo "❌ Pipeline failed with exception: ${e.getMessage()}"
