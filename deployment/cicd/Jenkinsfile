@@ -88,11 +88,9 @@ podTemplate(
 
             stage("Setup Kubernetes") {
                 container('kubectl') {
-                    withCredentials([azureServicePrincipal('azure-credentials')]) {
-                        sh """
+                    sh """
                           kubectl create namespace ${props.namespace} --dry-run=client -o yaml | kubectl apply -f -
                         """
-                    }
                 }
             }
 
