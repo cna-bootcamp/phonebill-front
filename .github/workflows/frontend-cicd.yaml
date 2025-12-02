@@ -78,6 +78,15 @@ jobs:
           npm run build
           npm run lint
 
+      - name: Debug SKIP_SONARQUBE value
+        run: |
+          echo "========== SKIP_SONARQUBE 디버깅 =========="
+          echo "github.event_name: ${{ github.event_name }}"
+          echo "github.event.inputs.SKIP_SONARQUBE: '${{ github.event.inputs.SKIP_SONARQUBE }}'"
+          echo "SKIP_SONARQUBE (with default): '${{ github.event.inputs.SKIP_SONARQUBE || 'not set' }}'"
+          echo "Condition (SKIP_SONARQUBE != 'true'): ${{ github.event.inputs.SKIP_SONARQUBE != 'true' }}"
+          echo "============================================"
+
       - name: SonarQube Analysis & Quality Gate
         if: ${{ github.event.inputs.SKIP_SONARQUBE != 'true' }}
         env:
