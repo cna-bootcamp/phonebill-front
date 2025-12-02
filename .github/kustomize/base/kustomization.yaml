@@ -11,5 +11,5 @@ resources:
   - ingress.yaml
 
 images:
-  - name: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front
+  - name: docker.io/hiondal/phonebill-front
     newTag: latest

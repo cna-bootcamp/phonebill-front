@@ -16,7 +16,7 @@ spec:
       - name: phonebill
       containers:
       - name: phonebill-front
-        image: acrdigitalgarage01.azurecr.io/phonebill/phonebill-front:latest
+        image: docker.io/hiondal/phonebill-front:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

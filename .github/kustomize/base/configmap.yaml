@@ -7,10 +7,10 @@ data:
     // 런타임 환경 설정
     window.__runtime_config__ = {
       // API 서버 설정
-      USER_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
-      BILL_HOST: 'http://phonebill-api.20.214.196.128.nip.io', 
-      PRODUCT_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
-      KOS_MOCK_HOST: 'http://phonebill-api.20.214.196.128.nip.io',
+      USER_HOST: 'http://phonebill-api.52.231.227.173.nip.io',
+      BILL_HOST: 'http://phonebill-api.52.231.227.173.nip.io', 
+      PRODUCT_HOST: 'http://phonebill-api.52.231.227.173.nip.io',
+      KOS_MOCK_HOST: 'http://phonebill-api.52.231.227.173.nip.io',
       API_GROUP: '/api/v1',
       
       // 환경 설정
