@@ -1,4 +1,4 @@
-name: Frontend CI/CD
+name: Frontend CI/CD (Generic K8s)
 
 on:
   push:
@@ -34,11 +34,16 @@ on:
           - 'false'
 
 env:
-  REGISTRY: acrdigitalgarage01.azurecr.io
-  IMAGE_ORG: phonebill
-  RESOURCE_GROUP: rg-digitalgarage-01
-  AKS_CLUSTER: aks-digitalgarage-01
-  NAMESPACE: phonebill-dg0500
+  # ============================================
+  # 변경: Azure ACR → Docker Hub
+  # ============================================
+  REGISTRY: docker.io
+  IMAGE_ORG: ${{ secrets.DOCKERHUB_USERNAME }}
+  IMAGE_NAME: phonebill-front
+  NAMESPACE: phonebill-dev
+  
+  # SSH 터널링용
+  MINIKUBE_IP: "192.168.49.2"
 
 jobs:
   build:
@@ -61,45 +66,8 @@ jobs:
       - name: Determine environment
         id: determine_env
         run: |
-          # Use input parameter or default to 'dev'
           ENVIRONMENT="${{ github.event.inputs.ENVIRONMENT || 'dev' }}"
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
-
-      - name: Load environment variables
-        id: env_vars
-        run: |
-          ENV=${{ steps.determine_env.outputs.environment }}
-
-          # Initialize variables with defaults
-          REGISTRY="acrdigitalgarage01.azurecr.io"
-          IMAGE_ORG="phonebill"
-          RESOURCE_GROUP="rg-digitalgarage-01"
-          AKS_CLUSTER="aks-digitalgarage-01"
-
-          # Read environment variables from .github/config file
-          if [[ -f ".github/config/deploy_env_vars_${ENV}" ]]; then
-            while IFS= read -r line || [[ -n "$line" ]]; do
-              # Skip comments and empty lines
-              [[ "$line" =~ ^#.*$ ]] && continue
-              [[ -z "$line" ]] && continue
-
-              # Extract key-value pairs
-              key=$(echo "$line" | cut -d '=' -f1)
-              value=$(echo "$line" | cut -d '=' -f2-)
-
-              # Override defaults if found in config
-              case "$key" in
-                "resource_group") RESOURCE_GROUP="$value" ;;
-                "cluster_name") AKS_CLUSTER="$value" ;;
-              esac
-            done < ".github/config/deploy_env_vars_${ENV}"
-          fi
-
-          # Export for other jobs
-          echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
-          echo "IMAGE_ORG=$IMAGE_ORG" >> $GITHUB_ENV
-          echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-          echo "AKS_CLUSTER=$AKS_CLUSTER" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci
@@ -110,23 +78,13 @@ jobs:
           npm run lint
 
       - name: SonarQube Analysis & Quality Gate
+        if: ${{ github.event.inputs.SKIP_SONARQUBE != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          # Check if SonarQube should be skipped
-          SKIP_SONARQUBE="${{ github.event.inputs.SKIP_SONARQUBE || 'true' }}"
-
-          if [[ "$SKIP_SONARQUBE" == "true" ]]; then
-            echo "⏭️ Skipping SonarQube Analysis (SKIP_SONARQUBE=$SKIP_SONARQUBE)"
-            exit 0
-          fi
-
-          # Install SonarQube Scanner
           npm install -g sonarqube-scanner
-
-          # Run SonarQube analysis
           sonar-scanner \
             -Dsonar.projectKey=phonebill-front-${{ steps.determine_env.outputs.environment }} \
             -Dsonar.projectName=phonebill-front-${{ steps.determine_env.outputs.environment }} \
@@ -151,7 +109,6 @@ jobs:
       - name: Set outputs
         id: set_outputs
         run: |
-          # Generate timestamp for image tag
           IMAGE_TAG=$(date +%Y%m%d%H%M%S)
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "environment=${{ steps.determine_env.outputs.environment }}" >> $GITHUB_OUTPUT
@@ -171,39 +128,31 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Set environment variables from build job
-        run: |
-          echo "REGISTRY=${{ env.REGISTRY }}" >> $GITHUB_ENV
-          echo "IMAGE_ORG=${{ env.IMAGE_ORG }}" >> $GITHUB_ENV
-          echo "ENVIRONMENT=${{ needs.build.outputs.environment }}" >> $GITHUB_ENV
-          echo "IMAGE_TAG=${{ needs.build.outputs.image_tag }}" >> $GITHUB_ENV
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub (prevent rate limit)
+      # ============================================
+      # 변경: Docker Hub 로그인만 사용
+      # ============================================
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Login to Azure Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
       - name: Build and push Docker image
-        run: |
-          docker build \
-            -f deployment/container/Dockerfile-frontend \
-            --build-arg PROJECT_FOLDER="." \
-            --build-arg BUILD_FOLDER="deployment/container" \
-            --build-arg EXPORT_PORT="8080" \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/phonebill-front:${{ needs.build.outputs.environment }}-${{ needs.build.outputs.image_tag }} .
-
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/phonebill-front:${{ needs.build.outputs.environment }}-${{ needs.build.outputs.image_tag }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployment/container/Dockerfile-frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.environment }}-${{ needs.build.outputs.image_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.environment }}-latest
+          build-args: |
+            PROJECT_FOLDER=.
+            BUILD_FOLDER=deployment/container
+            EXPORT_PORT=8080
 
   deploy:
     name: Deploy to Kubernetes
@@ -214,30 +163,67 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Set image tag environment variable
+      - name: Set environment variables
         run: |
           echo "IMAGE_TAG=${{ needs.build.outputs.image_tag }}" >> $GITHUB_ENV
           echo "ENVIRONMENT=${{ needs.build.outputs.environment }}" >> $GITHUB_ENV
 
-      - name: Install Azure CLI
+      # ============================================
+      # 변경: Azure CLI/Login 제거 → SSH 터널링
+      # ============================================
+      - name: Setup SSH key
         run: |
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/vm_key
+          chmod 600 ~/.ssh/vm_key
+          ssh-keyscan -H ${{ secrets.VM_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Create SSH tunnel to Minikube
+        run: |
+          ssh -i ~/.ssh/vm_key \
+              -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=60 \
+              -L 8443:${{ env.MINIKUBE_IP }}:8443 \
+              ${{ secrets.VM_USER }}@${{ secrets.VM_IP }} -N &
+          
+          sleep 5
+          echo "✅ SSH tunnel established"
 
+      # ============================================
+      # 변경: az aks get-credentials → KUBECONFIG Secret
+      # ============================================
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
 
-      - name: Get AKS Credentials
+      - name: Configure kubectl via KUBECONFIG
         run: |
-          az aks get-credentials --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER }} --overwrite-existing
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          
+          # server 주소를 localhost:8443으로 변경 (SSH 터널 통해 접근)
+          sed -i 's|server:.*|server: https://127.0.0.1:8443|g' $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
 
       - name: Create namespace
         run: |
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      # ============================================
+      # 추가: Docker Hub pull secret 생성
+      # ============================================
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry dockerhub-secret \
+            --docker-server=docker.io \
+            --docker-username=${{ secrets.DOCKERHUB_USERNAME }} \
+            --docker-password=${{ secrets.DOCKERHUB_PASSWORD }} \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install Kustomize
         run: |
@@ -246,16 +232,30 @@ jobs:
 
       - name: Update Kustomize images and deploy
         run: |
-          # 환경별 디렉토리로 이동
           cd .github/kustomize/overlays/${{ env.ENVIRONMENT }}
-
-          # 이미지 태그 업데이트
-          kustomize edit set image ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/phonebill-front:${{ env.ENVIRONMENT }}-${{ env.IMAGE_TAG }}
-
-          # 매니페스트 적용
+          
+          # ============================================
+          # 변경: 이미지 경로를 Docker Hub로
+          # ============================================
+          kustomize edit set image \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ env.IMAGE_NAME }}:${{ env.ENVIRONMENT }}-${{ env.IMAGE_TAG }}
+          
           kubectl apply -k .
 
       - name: Wait for deployments to be ready
         run: |
           echo "Waiting for deployments to be ready..."
-          kubectl -n ${{ env.NAMESPACE }} wait --for=condition=available deployment/phonebill-front --timeout=300s
+          kubectl -n ${{ env.NAMESPACE }} wait --for=condition=available deployment/${{ env.IMAGE_NAME }} --timeout=300s
+
+      - name: Show deployment status
+        run: |
+          kubectl -n ${{ env.NAMESPACE }} get pods -o wide
+          kubectl -n ${{ env.NAMESPACE }} get svc
+
+      # ============================================
+      # 추가: SSH 터널 정리
+      # ============================================
+      - name: Cleanup SSH tunnel
+        if: always()
+        run: |
+          pkill -f "ssh.*8443" || true
