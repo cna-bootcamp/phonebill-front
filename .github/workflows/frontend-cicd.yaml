@@ -43,13 +43,13 @@ jobs:
       - name: Debug KUBECONFIG secret
         run: |
           echo "========== KUBECONFIG 디버깅 =========="
-          if [ -z "${{ secrets.KUBECONFIG }}" ]; then
+          if [ -z "$KUBECONFIG_VALUE" ]; then
             echo "KUBECONFIG: 설정되지 않음 (empty)"
           else
             echo "KUBECONFIG: 설정됨"
             echo "KUBECONFIG 길이: ${#KUBECONFIG_VALUE} 문자"
-            echo "Base64 디코드 테스트:"
-            echo "${{ secrets.KUBECONFIG }}" | base64 -d | head -c 100 | cat -v || echo "Base64 디코드 실패"
+            echo "KUBECONFIG 내용 (처음 200자):"
+            echo "$KUBECONFIG_VALUE" | head -c 200
             echo ""
           fi
           echo "============================================"
@@ -207,7 +207,7 @@ jobs:
       - name: Configure kubectl via KUBECONFIG
         run: |
           mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           
           # server 주소를 localhost:8443으로 변경 (SSH 터널 통해 접근)
