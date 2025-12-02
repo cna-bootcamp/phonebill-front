@@ -40,6 +40,22 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Debug KUBECONFIG secret
+        run: |
+          echo "========== KUBECONFIG 디버깅 =========="
+          if [ -z "${{ secrets.KUBECONFIG }}" ]; then
+            echo "KUBECONFIG: 설정되지 않음 (empty)"
+          else
+            echo "KUBECONFIG: 설정됨"
+            echo "KUBECONFIG 길이: ${#KUBECONFIG_VALUE} 문자"
+            echo "Base64 디코드 테스트:"
+            echo "${{ secrets.KUBECONFIG }}" | base64 -d | head -c 100 | cat -v || echo "Base64 디코드 실패"
+            echo ""
+          fi
+          echo "============================================"
+        env:
+          KUBECONFIG_VALUE: ${{ secrets.KUBECONFIG }}
+
       - name: Set up Node.js 20
         uses: actions/setup-node@v3
         with:
