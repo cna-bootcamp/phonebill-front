@@ -1,5 +1,6 @@
 name: Frontend CI/CD (Generic K8s)
 
+
 on:
   push:
     branches: [ main, develop ]
@@ -40,7 +41,7 @@ env:
   REGISTRY: docker.io
   IMAGE_ORG: ${{ secrets.DOCKERHUB_USERNAME }}
   IMAGE_NAME: phonebill-front
-  NAMESPACE: phonebill-dev
+  NAMESPACE: phonebill
   
   # SSH 터널링용
   MINIKUBE_IP: "192.168.49.2"
