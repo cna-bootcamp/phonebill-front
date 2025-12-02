@@ -15,24 +15,6 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      ENVIRONMENT:
-        description: 'Target environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - staging
-          - prod
-      SKIP_SONARQUBE:
-        description: 'Skip SonarQube Analysis'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
 
 env:
   # ============================================
@@ -67,7 +49,10 @@ jobs:
       - name: Determine environment
         id: determine_env
         run: |
-          ENVIRONMENT="${{ github.event.inputs.ENVIRONMENT || 'dev' }}"
+          echo "========== ENVIRONMENT 디버깅 =========="
+          echo "vars.ENVIRONMENT: '${{ vars.ENVIRONMENT }}'"
+          echo "============================================"
+          ENVIRONMENT="${{ vars.ENVIRONMENT || 'dev' }}"
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
 
       - name: Install dependencies
@@ -81,14 +66,12 @@ jobs:
       - name: Debug SKIP_SONARQUBE value
         run: |
           echo "========== SKIP_SONARQUBE 디버깅 =========="
-          echo "github.event_name: ${{ github.event_name }}"
-          echo "github.event.inputs.SKIP_SONARQUBE: '${{ github.event.inputs.SKIP_SONARQUBE }}'"
-          echo "SKIP_SONARQUBE (with default): '${{ github.event.inputs.SKIP_SONARQUBE || 'not set' }}'"
-          echo "Condition (SKIP_SONARQUBE != 'true'): ${{ github.event.inputs.SKIP_SONARQUBE != 'true' }}"
+          echo "vars.SKIP_SONARQUBE: '${{ vars.SKIP_SONARQUBE }}'"
+          echo "Condition (vars.SKIP_SONARQUBE != 'true'): ${{ vars.SKIP_SONARQUBE != 'true' }}"
           echo "============================================"
 
       - name: SonarQube Analysis & Quality Gate
-        if: ${{ github.event.inputs.SKIP_SONARQUBE != 'true' }}
+        if: ${{ vars.SKIP_SONARQUBE != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
